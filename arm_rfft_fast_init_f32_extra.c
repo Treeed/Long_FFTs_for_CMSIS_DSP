@@ -350,7 +350,7 @@ static arm_status arm_rfft_16384_fast_init_f32( arm_rfft_fast_instance_f32_extra
 
   @par           Description
                    The parameter <code>fftLen</code> specifies the length of RFFT/CIFFT process.
-                   Supported FFT Lengths are 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384.
+                   Supported FFT Lengths are 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384.
   @par
                    This Function also initializes Twiddle factor table pointer and Bit reversal table pointer.
  */

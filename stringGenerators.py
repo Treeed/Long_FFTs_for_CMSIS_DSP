@@ -1,19 +1,8 @@
 import bitrevIdxs
 import valueGenerators as gens
 
-start_power = 4
-stop_power = 14
 
-print(f"generating for {2**start_power} to {2**stop_power}")
-
-lengths = [[power, 2**power] for power in range(start_power, stop_power+1)]
-
-# bit reversal table is only needed once for the highest power
-bitrev = gens.bit_reversers(stop_power)
-length_bitrev = len(bitrev)
-
-with open("arm_common_tables_extra.c", "w") as table_file, open("arm_common_tables_extra.h", "w") as header_file:
-    header_file.write(f"""#ifndef _ARM_EXTRA_TABLES_H
+tables_header_start = f"""#ifndef _ARM_EXTRA_TABLES_H
 #define _ARM_EXTRA_TABLES_H
 
 #include "arm_math_types.h"
@@ -22,87 +11,110 @@ with open("arm_common_tables_extra.c", "w") as table_file, open("arm_common_tabl
 extern "C"
 {{
 #endif
+"""
+tables_file_start = '#include "arm_math_types.h"\n\n#if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_FFT_ALLOW_TABLES)\n'
 
+
+def bitrev_table(stop_power):
+    bitrev = gens.bit_reversers(stop_power)
+    length_bitrev = len(bitrev)
+    header_string = f"""
 #if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_FFT_ALLOW_TABLES)
   /* Double Precision Float CFFT twiddles */
   #if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) || defined(ARM_TABLE_BITREV_{length_bitrev})
     extern const uint16_t armBitRevTableExtra[{length_bitrev}];
   #endif /* !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) */
   
-""")
-    table_file.write(f'#include "arm_math_types.h"\n\n#if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_FFT_ALLOW_TABLES)\n#if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) || defined(ARM_TABLE_BITREV_1024)\nconst uint16_t armBitRevTableExtra[{len(bitrev)}] = {{\n    ')
-    table_file.write(",\n    ".join(
+"""
+    table_string = f'#if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) || defined(ARM_TABLE_BITREV_{length_bitrev})\nconst uint16_t armBitRevTableExtra[{length_bitrev}] = {{\n    '
+    table_string += (",\n    ".join(
                                 [', '.join(
                                        f'0x{val:04x}' for val in bitrev[idx:idx+10]
                                       )
                                  for idx in range(0, length_bitrev, 10)]
                                 ))
-    table_file.write("};\n#endif\n\n")
+    table_string += ("};\n#endif\n\n")
 
+    return header_string, table_string
+
+
+def bitrevidx_table(lengths):
+    table_string = ""
+    header_string = ""
     for power, length in lengths:
         tps = bitrevIdxs.create_transpositions(length, 8)
         out = bitrevIdxs.transpositions_stringify(length, 8, tps)
         if len(tps)*2 > 2**16-1:
             print(f"warning: bitrevidx table for {length} is too long ({len(tps)*2}). Use a smaller value or figure out where to switch uint16_t to uint32_t")
 
-        table_file.write(f"#if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) || defined(ARM_TABLE_BITREVIDX_FLT_{length})\n")
-        table_file.write(out)
-        table_file.write("\n#endif /* !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) */\n\n\n")
+        table_string += f"#if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) || defined(ARM_TABLE_BITREVIDX_FLT_{length})\n"
+        table_string += out
+        table_string += "\n#endif /* !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) */\n\n\n"
 
 
-        TW = gens.twiddle_coefs_complex(length)
-
-        table_file.write(f"#if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) || defined(ARM_TABLE_TWIDDLECOEF_F32_{length*2})\n")
-        table_file.write(f'const float32_t twiddleCoefExtra_{length}[{length*2}] = {{\n')
-        table_file.write("".join(f'    {val.real:.9f}f, {val.imag:.9f}f,\n' for val in TW))
-        table_file.write('};\n')
-        table_file.write("#endif /* !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) */\n\n")
-
-
-        header_file.write(f"""  #if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) || defined(ARM_TABLE_TWIDDLECOEF_F32_{length})
-    extern const float32_t twiddleCoefExtra_{length}[{length*2}];
-  #endif /* !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) */
-  
-""")
-
-        header_file.write(f"""  #if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) || defined(ARM_TABLE_BITREVIDX_FLT_{length})
+        header_string += f"""  #if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) || defined(ARM_TABLE_BITREVIDX_FLT_{length})
     #define ARMBITREVINDEXTABLE_{length}_TABLE_LENGTH_EXTRA ((uint16_t){len(tps)*2})
     extern const uint32_t armBitRevIndexTableExtra{length}[ARMBITREVINDEXTABLE_{length}_TABLE_LENGTH_EXTRA];
   #endif /* !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) */
   
-""")
-    # we can't do a rfft for the lowest power, since a rfft always includes a cfft of length/2
-    for power, length in lengths[1:]:
-        TW = gens.twiddle_coefs_real(length)
+"""
+    return header_string, table_string
 
-        table_file.write(f"#if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) || defined(ARM_TABLE_TWIDDLECOEF_RFFT_F32_{length})\n")
-        table_file.write(f'const float32_t twiddleCoefExtra_rfft_{length}[{length}] = {{\n')
-        table_file.write("".join(f'    {val.real:.9f}f, {val.imag:.9f}f,\n' for val in TW))
-        table_file.write('};\n')
-        table_file.write("#endif /* !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) */\n\n")
 
-        header_file.write(
-            f"""  #if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) || defined(ARM_TABLE_TWIDDLECOEF_RFFT_F32_{length})
-            extern const float32_t twiddleCoefExtra_rfft_{length}[{length}];
-          #endif /* !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) */
+def twiddle_complex_table(lengths):
+    table_string = ""
+    header_string = ""
+    for power, length in lengths:
 
-        """)
+        twiddles = gens.twiddle_coefs_complex(length)
 
-    header_file.write(f"""
-  #define twiddleCoefExtra twiddleCoef_{2**stop_power}
-""")
-    header_file.write("""
+        table_string += f"#if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) || defined(ARM_TABLE_TWIDDLECOEF_F32_{length*2})\n"
+        table_string += f'const float32_t twiddleCoefExtra_{length}[{length*2}] = {{\n'
+        table_string += "".join(f'    {val.real:.9f}f, {val.imag:.9f}f,\n' for val in twiddles)
+        table_string += '};\n'
+        table_string += "#endif /* !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) */\n\n"
+
+
+        header_string += f"""  #if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) || defined(ARM_TABLE_TWIDDLECOEF_F32_{length})
+    extern const float32_t twiddleCoefExtra_{length}[{length*2}];
+  #endif /* !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) */
+  
+"""
+    return header_string, table_string
+
+
+def twiddle_real_table(lengths):
+    table_string = ""
+    header_string = ""
+    for power, length in lengths:
+        twiddles = gens.twiddle_coefs_real(length)
+
+        table_string += f"#if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) || defined(ARM_TABLE_TWIDDLECOEF_RFFT_F32_{length})\n"
+        table_string += f'const float32_t twiddleCoefExtra_rfft_{length}[{length}] = {{\n'
+        table_string += "".join(f'    {val.real:.9f}f, {val.imag:.9f}f,\n' for val in twiddles)
+        table_string += '};\n'
+        table_string += "#endif /* !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) */\n\n"
+
+        header_string += f"""  #if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) || defined(ARM_TABLE_TWIDDLECOEF_RFFT_F32_{length})
+    extern const float32_t twiddleCoefExtra_rfft_{length}[{length}];
+  #endif /* !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) */
+
+"""
+    return header_string, table_string
+
+
+tables_header_end = """
 #endif /* if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_FAST_TABLES) */
 #ifdef   __cplusplus
 }
 #endif
 
-#endif /*  ARM_EXTRA_TABLES_H */""")
-    table_file.write("\n#endif\n")
+#endif /*  ARM_EXTRA_TABLES_H */"""
+tables_file_end = "\n#endif\n"
 
 
-with open("arm_rfft_fast_init_f32_extra.c", "w") as init_file:
-    init_file.write("""
+def rfft_init(lengths):
+    init_string = """
 /* ----------------------------------------------------------------------
  * Project:      CMSIS DSP Library
  * Title:        arm_rfft_fast_init_f32_extra.c
@@ -142,10 +154,10 @@ with open("arm_rfft_fast_init_f32_extra.c", "w") as init_file:
   @addtogroup RealFFT
   @{
  */
-""")
+"""
     # we can't do a rfft for the lowest power, since a rfft always includes a cfft of length/2
-    for power, length in lengths[1:]:
-        init_file.write(f"""
+    for power, length in lengths:
+        init_string += f"""
 #if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) || (defined(ARM_TABLE_TWIDDLECOEF_F32_{length//2}) && (defined(ARM_TABLE_BITREVIDX_FLT_{length//2}) || defined(ARM_TABLE_BITREVIDX_FXT_{length//2})) && defined(ARM_TABLE_TWIDDLECOEF_RFFT_F32_{length}))
 
 /**
@@ -175,8 +187,8 @@ static arm_status arm_rfft_{length}_fast_init_f32( arm_rfft_fast_instance_f32_ex
   return ARM_MATH_SUCCESS;
 }}
 #endif 
-""")
-    init_file.write(f"""
+"""
+    init_string += f"""
 
 /**
   @brief         Initialization function for the floating-point real FFT.
@@ -202,16 +214,16 @@ arm_status arm_rfft_fast_init_f32_extra(
 
   switch (fftLen)
   {{
-""")
-    for power, length in lengths[:0:-1]:
-        init_file.write(f"""
+"""
+    for power, length in lengths[::-1]:
+        init_string += f"""
 #if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) || (defined(ARM_TABLE_TWIDDLECOEF_F32_{length//2}) && (defined(ARM_TABLE_BITREVIDX_FLT_{length//2}) || defined(ARM_TABLE_BITREVIDX_FXT_{length//2})) && defined(ARM_TABLE_TWIDDLECOEF_RFFT_F32_{length}))
   case {length}U:
     fptr = arm_rfft_{length}_fast_init_f32;
     break;
 #endif
-""")
-    init_file.write("""
+"""
+    init_string += """
   default:
     break;
   }
@@ -225,11 +237,12 @@ arm_status arm_rfft_fast_init_f32_extra(
   @} end of RealFFT group
  */
 
-""")
+"""
+    return init_string
 
 
-with open("arm_cfft_init_f32_extra.c", "w") as init_file:
-    init_file.write("""
+def cfft_init(lengths):
+    init_string = """
 /* ----------------------------------------------------------------------
  * Project:      CMSIS DSP Library
  * Title:        arm_cfft_init_f32_extra.c
@@ -294,11 +307,11 @@ arm_status arm_cfft_radix4by2_rearrange_twiddles_f32(arm_cfft_instance_f32_extra
 {
                                                                   
         switch (S->fftLen >> (twidCoefModifier - 1)) {  
-""")
+"""
     for power, length in lengths[::-1]:
         if power % 2 != 0:
             continue
-        init_file.write(f"""
+        init_string += f"""
 #if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) \\
             || defined(ARM_TABLE_TWIDDLECOEF_F32_{length})                                                                                                
         case {length}U:                                                                                
@@ -312,8 +325,8 @@ arm_status arm_cfft_radix4by2_rearrange_twiddles_f32(arm_cfft_instance_f32_extra
             S->rearranged_twiddle_stride3  =  rearranged_twiddle_stride3_{length}_f32;                                                     
             break; 
 #endif
-""")
-    init_file.write("""                                                                         
+"""
+    init_string += """                                                                         
                                                                                                    
         default:  
             return(ARM_MATH_ARGUMENT_ERROR);                                                                                 
@@ -342,10 +355,10 @@ arm_status arm_cfft_init_f32_extra(
                                                                                 
         /*  Initializations of Instance structure depending on the FFT length */
         switch (S->fftLen) {   
-""")
+"""
 
     for power, length in lengths[::-1]:
-        init_file.write(f"""                                                 
+        init_string += f"""                                                 
             /*  Initializations of structure parameters for {length} point FFT */   
 #if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) || (defined(ARM_TABLE_BITREVIDX_FXT_{length}) && defined(ARM_TABLE_TWIDDLECOEF_F32_{length}))                     
         case {length}U:  
@@ -356,8 +369,8 @@ arm_status arm_cfft_init_f32_extra(
             status=arm_cfft_radix4by2_rearrange_twiddles_f32(S, {(power % 2) + 1});               
             break;                                                              
 #endif 
-""")
-    init_file.write("""                                                   
+"""
+    init_string += """                                                   
         default:                                                                
             /*  Reporting argument error if fftSize is not valid value */       
             status = ARM_MATH_ARGUMENT_ERROR;                                   
@@ -384,9 +397,9 @@ arm_status arm_cfft_init_f32_extra(
 
         /*  Initializations of Instance structure depending on the FFT length */
         switch (S->fftLen) {
-""")
+"""
     for power, length in lengths[::-1]:
-        init_file.write(f"""
+        init_string += f"""
 #if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) || (defined(ARM_TABLE_TWIDDLECOEF_F32_{length}) && defined(ARM_TABLE_BITREVIDX_FLT_{length}))
             /*  Initializations of structure parameters for {length} point FFT */
         case {length}U:
@@ -394,8 +407,8 @@ arm_status arm_cfft_init_f32_extra(
             FFTINIT(f32,{length});
             break;
 #endif
-""")
-    init_file.write("""
+"""
+    init_string += """
 
         default:
             /*  Reporting argument error if fftSize is not valid value */
@@ -412,17 +425,19 @@ arm_status arm_cfft_init_f32_extra(
   @} end of ComplexFFT group
  */
 
-""")
+"""
+    return init_string
 
-with open("arm_const_structs_extra.c", "w") as struct_file, open("arm_const_structs_extra.h", "w") as header_file:
-    struct_file.write("""
+
+def const_structs(lengths):
+    struct_string = """
 #include "arm_math_types.h"
 #include "arm_const_structs_extra.h"
 
 /* Floating-point structs */
 #if !defined(ARM_MATH_MVEF) || defined(ARM_MATH_AUTOVECTORIZE)
-""")
-    header_file.write("""
+"""
+    header_string = """
 #ifndef _ARM_CONST_STRUCTS_EXTRA_H
 #define _ARM_CONST_STRUCTS_EXTRA_H
 
@@ -434,9 +449,9 @@ with open("arm_const_structs_extra.c", "w") as struct_file, open("arm_const_stru
 extern "C"
 {
 #endif
-""")
+"""
     for power, length in lengths:
-        struct_file.write(f"""
+        struct_string += f"""
 
 #if !defined(ARM_DSP_CONFIG_TABLES) || defined(ARM_ALL_FFT_TABLES) || (defined(ARM_TABLE_TWIDDLECOEF_F32_{length}) && defined(ARM_TABLE_BITREVIDX_FLT_{length}))
 const arm_cfft_instance_f32_extra arm_cfft_sR_f32_len{length}_extra = {{
@@ -444,13 +459,13 @@ const arm_cfft_instance_f32_extra arm_cfft_sR_f32_len{length}_extra = {{
 }};
 #endif
 
-""")
-        header_file.write(f"   extern const arm_cfft_instance_f32_extra arm_cfft_sR_f32_len{length}_extra;\n")
-    struct_file.write("""
+"""
+        header_string += f"   extern const arm_cfft_instance_f32_extra arm_cfft_sR_f32_len{length}_extra;\n"
+    struct_string += """
 #endif /* !defined(ARM_MATH_MVEF) || defined(ARM_MATH_AUTOVECTORIZE) */
-""")
+"""
 
-    header_file.write("""
+    header_string += """
 
 #ifdef   __cplusplus
 }
@@ -459,4 +474,5 @@ const arm_cfft_instance_f32_extra arm_cfft_sR_f32_len{length}_extra = {{
 #endif
 
 
-""")
+"""
+    return header_string, struct_string
