@@ -22,6 +22,14 @@ The reason to duplicate so much original code is that the armBitRevIndexTables n
 ...are not supported\
 You might notice that some of the device specific code for these is still included and generated. Most of it is, however, not adapted to the longer ffts and none of the technology specific tables are generated.  
 
+&nbsp;
+&nbsp;
+&nbsp;
 
+Thanks to https://gist.github.com/rosek86 for the code to generate the bitreversal index tables: https://gist.github.com/rosek86/d0d709852fddf36193071d7f61987bae 
+
+&nbsp;
+&nbsp;
+&nbsp;
 
 This repository contains and generates code originally published as part of https://github.com/ARM-software/CMSIS-DSP. All respective licensing terms apply.
