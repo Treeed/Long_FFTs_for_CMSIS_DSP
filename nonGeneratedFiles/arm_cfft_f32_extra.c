@@ -1162,7 +1162,7 @@ void arm_cfft_f32_extra(
   case 32:
   case 256:
   case 2048:
-  case 16383:
+  case 16384:
     arm_cfft_radix8by4_f32_extra ( (arm_cfft_instance_f32_extra *) S, p1);
     break;
   case 64:
