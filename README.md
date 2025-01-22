@@ -22,6 +22,45 @@ The reason to duplicate so much original code is that the armBitRevIndexTables n
 ...are not supported\
 You might notice that some of the device specific code for these is still included and generated. Most of it is, however, not adapted to the longer ffts and none of the technology specific tables are generated.  
 
+## Performance
+Some rough performance tests done using the Systick set to 10kHz and the following code:
+```c
+  unsigned long start = HAL_GetTick();
+  arm_rfft_fast_f32_extra(&fft_tables_main, fft_buffer1, fft_buffer2, false);
+  arm_cmplx_mag_f32(fft_buffer2, fft_buffer1, FFT_LEN);
+  volatile unsigned long result = HAL_GetTick() - start;
+```
+I used GNU Tools for STM32 (10.3-2021.10) which contains some GCC 10.3 on an STM32F479NG running at 180MHz.\
+I didn't test the very short FFTs as they run too fast to measure this way and I didn't test the very long FFTs since their twiddle tables didn't fit on flash together with the other FFTs.
+### Options for the different scenarios:
+#### Precompiled CMSIS
+Just the library that STM32CubeIDE provides. 
+
+#### Extra FFT Opt
+-Ofast -funroll-loops
+-mfpu=fpv4-sp-d16 -mfloat-abi=hard
+
+#### Extra FFT No Opt
+-O0
+-mfpu=fpv4-sp-d16 -mfloat-abi=hard
+
+#### Extra FFT No FPU
+-Ofast -funroll-loops
+-mfloat-abi=soft
+
+| FFT Length | Precompiled CMSIS time (ms) | Extra FFT Opt time (ms) | Extra FFT No Opt time (ms) | Extra FFT No FPU time (ms) |
+|------------|-----------------------------|-------------------------|----------------------------|----------------------------|
+| 128        | 0.1                         | 0.1                     | 0.3                        | 0.6                        |
+| 256        | 0.1                         | 0.1                     | 0.6                        | 1.2                        |
+| 512        | 0.3                         | 0.3                     | 1.3                        | 2.6                        |
+| 1024       | 0.6                         | 0.6                     | 2.5                        | 5.6                        |
+| 2048       | 1.2                         | 1.2                     | 5.7                        | 12.2                       |
+| 4096       | 2.6                         | 2.6                     | 12.0                       | 27.9                       |
+| 8192       | -                           | 4.8                     | 23.5                       | 59.8                       |
+| 16384      | -                           | 11.1                    | 52.9                       | 129.1                      | 
+
+
+
 &nbsp;
 &nbsp;
 &nbsp;
