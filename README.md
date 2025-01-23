@@ -11,6 +11,7 @@ The reason to duplicate so much original code is that the armBitRevIndexTables n
 - add `#include "extra_ffts.h"` to your code
 - replace any calls to CMSIS DSP FFT functions or structures in your code by calls with _extra in the end (see extra_ffts.h for available options)
 - use any fft size in the range you generated for (16 - 16384 cfft and 32 - 16384 rfft if you used the pregenerated files)
+- enable -Ofast (and -funroll-loops if you want) if you are concerned about speed. These options are needed to match the performance of the precompiled CMSIS library. In Eclipse (STM32CubeIDE) -Ofast is in "Project Settings -> C/C++Build -> Settings -> Tool Settings -> MCU GCC Compiler -> Optimization -> Optimization level" and -funroll-loops needs to be added under "MCU GCC Compiler -> Miscellaneous"
 
 ## Generation
 - install python (tested with python version 3.10, probably works with anything >3.6)
